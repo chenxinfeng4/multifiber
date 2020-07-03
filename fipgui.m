@@ -122,7 +122,11 @@ devices = daq.getDevices();
 device = devices(1);
 handles.dev = device;
 
-s = daq.createSession('ni');
+if true
+    s = arduinodaq.createSession('com3');
+else
+    s = daq.createSession('ni');
+end
 s.Rate = fs;
 s.IsContinuous = true;
 try
@@ -182,6 +186,7 @@ handles.s = s;
 camDeviceN = get(handles.cam_pop, 'Value');
 vid = videoinput(adaptors{camDeviceN}, IDs(camDeviceN), formats{camDeviceN});
 src = getselectedsource(vid);
+src.PixelType = 'mono16';
 vid.FramesPerTrigger = 1; 
 vid.TriggerRepeat = Inf;
 vid.ROIPosition = [0 0 vid.VideoResolution];
@@ -248,7 +253,11 @@ function snap_btn_Callback(hObject, eventdata, handles)
 % hObject    handle to snap_btn (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
 % handles    structure with handles and user data (see GUIDATA)
+src = getselectedsource(handles.vid);
+src.ExposureTime=0.02; %s
+src.TriggerSource = 'internal';
 snapframe = getsnapshot(handles.vid);
+
 
 % Display the frame
 figure();
@@ -269,9 +278,26 @@ frames = zeros(res(1), res(2), nFrames);
 set(handles.vid, 'ROIPosition', [0 0 res]);
 
 load_analog_output_data(handles, true);
-triggerconfig(handles.vid, 'hardware', 'RisingEdge', 'EdgeTrigger');
+%triggerconfig(handles.vid, 'hardware', 'RisingEdge', 'EdgeTrigger');
+src = getselectedsource(handles.vid);
+src.TriggerSource = 'external';
+src.TriggerActive = 'edge';
+src.ExposureTime=0.02;
+src.TriggerPolarity = 'positive';
+triggerconfig(handles.vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
+
+
 start(handles.vid);
-startBackground(handles.s);
+startBackground(handles.s); %cxf
+
+assert(handles.s.IsRunning)
+
+% begin cxf
+himage = preview(handles.vid);
+while isvalid(himage)
+    pause(0.001)
+end
+% end cxf
 
 while i < nFrames
     i = i + 1;
@@ -441,8 +467,11 @@ if state
         end
         
         % Snap a quick dark frame
+        src = getselectedsource(handles.vid);
+        src.TriggerSource = 'internal';
         darkframe = getsnapshot(handles.vid);
-
+        src.TriggerSource = 'external';
+        
         if ~any(handles.masks(:))
             handles.masks = ones(handles.vid.VideoResolution);
             darkOffset = mean(darkframe(:));
@@ -492,12 +521,19 @@ if state
             lyy(k,:) = [l1 l2];
         end
 
-        triggerconfig(vid, 'hardware', 'RisingEdge', 'EdgeTrigger');
+ %       triggerconfig(vid, 'hardware', 'RisingEdge', 'EdgeTrigger');
+src = getselectedsource(vid);
+src.TriggerSource = 'external';
+src.TriggerActive = 'edge';
+src.TriggerPolarity = 'positive';
+src.ExposureTime=0.02;
+triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
+
         load_analog_output_data(handles, false);
+        
         start(vid);
-        
         s.startBackground();
-        
+
         handles.startTime = now();
 
         % Stop if value is set to false, or if the user-specified AO
@@ -508,7 +544,6 @@ if state
             disp('Waiting for user to end acquisition...');
         end
         while get(hObject,'Value') 
-            
             if ~ s.IsRunning                
                 disp('AO waveform output finished.');
                 set(hObject,'Value', false); % Exit loop if AO output just finished                
@@ -589,11 +624,11 @@ if state
                     set(lyy(k,2), 'XData', tnow, 'YData', ref(max(1, j-framesback):jboth,k));
                 end
             end
-                       
+            toc;
             % Check to make sure camera acquisition is keeping up.
             elapsed_time = (now() - handles.startTime());
             rate = str2double(get(handles.rate_txt,'String'));            
-            if abs(elapsed_time*24*3600 - (i)/rate) > 1 % if camera acquisition falls behind more than 1 s...
+            if abs(elapsed_time*24*3600 - (i)/rate) > 2 % if camera acquisition falls behind more than 1 s...
                 fraction_frames_acquired = i/(elapsed_time*24*3600*rate);                
                 if j > 0
                     disp(['fraction of frames acquired: ' num2str(fraction_frames_acquired)]);
