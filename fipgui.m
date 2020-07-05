@@ -22,7 +22,7 @@ function varargout = fipgui(varargin)
 
 % Edit the above text to modify the response to help fipgui
 
-% Last Modified by GUIDE v2.5 07-Dec-2015 14:59:52
+% Last Modified by GUIDE v2.5 03-Jul-2020 19:06:28
 
 % Begin initialization code - DO NOT EDIT
 gui_Singleton = 1;
@@ -137,21 +137,28 @@ try
     disp(['Camera should be connected to ' camCh.Terminal]);
 
     refCh = s.addCounterOutputChannel(device.ID, getCurrentPopupString(handles.ref_pop), 'PulseGeneration');
-    refCh.Frequency = rate / 2;
-    refCh.InitialDelay = 1 / rate * 0.05;
-    refCh.DutyCycle = 0.45;
-    disp(['Reference LED should be connected to ' refCh.Terminal]);
+    refCh.Frequency = rate / 3;
+    refCh.InitialDelay = 0 / rate + 0.005;
+    refCh.DutyCycle = 0.25;
+    disp(['Reference (405) LED should be connected to ' refCh.Terminal]);
 
     sigCh = s.addCounterOutputChannel(device.ID, getCurrentPopupString(handles.sig_pop), 'PulseGeneration');
-    sigCh.Frequency = rate / 2;
-    sigCh.InitialDelay = 1 / rate * 1.05;
-    sigCh.DutyCycle = 0.45;
-    disp(['Signal LED should be connected to ' sigCh.Terminal]);
+    sigCh.Frequency = rate / 3;
+    sigCh.InitialDelay = 1 / rate + 0.005;
+    sigCh.DutyCycle = 0.25;
+    disp(['Signal (470) LED should be connected to ' sigCh.Terminal]);
+    
+    sig2Ch = s.addCounterOutputChannel(device.ID, getCurrentPopupString(handles.sig2_pop), 'PulseGeneration');
+    sig2Ch.Frequency = rate / 3;
+    sig2Ch.InitialDelay = 2 / rate + 0.005;
+    sig2Ch.DutyCycle = 0.25;
+    disp(['Signal (566) LED should be connected to ' sig2Ch.Terminal]);
 catch e
     disp(e);
     setpref('FIPGUI', 'camport_pop',1);
     setpref('FIPGUI', 'ref_pop',2);
     setpref('FIPGUI', 'sig_pop',3);
+    setpref('FIPGUI', 'sig_pop',4);
     error('Restart MATLAB');
 end
 
@@ -180,6 +187,7 @@ handles.lh_ao=lh_ao;
 handles.camCh = camCh;
 handles.refCh = refCh;
 handles.sigCh = sigCh;
+handles.sig2Ch = sig2Ch;
 handles.s = s;
 
 % Setup camera
@@ -271,7 +279,7 @@ function calibframe_btn_Callback(hObject, eventdata, handles)
 % handles    structure with handles and user data (see GUIDATA)
 
 % Run the camera and LED commands briefly to get illuminated frames
-nFrames = 4;
+nFrames = 6;
 i = 0;
 res = get(handles.vid, 'VideoResolution');
 frames = zeros(res(1), res(2), nFrames);
@@ -287,15 +295,44 @@ src.TriggerPolarity = 'positive';
 triggerconfig(handles.vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
 
 
-start(handles.vid);
-startBackground(handles.s); %cxf
-
-assert(handles.s.IsRunning)
-
 % begin cxf
-himage = preview(handles.vid);
-while isvalid(himage)
-    pause(0.001)
+start(handles.vid);
+
+hfig = figure('position', [537 277 1257 460], 'menubar', 'none', 'visible', 'off');
+haxs = [axes('position',[0.03 0.11 0.30 0.815]); ...
+        axes('position',[0.36 0.11 0.30 0.815]); ...
+        axes('position',[0.68 0.11 0.30 0.815]);
+        ];
+htFPS = uicontrol(hfig, 'style', 'text', 'position',[500 8 300 20],...
+                  'ForegroundColor', [0 0 0], 'FontSize', 12);
+htTIME = uicontrol(hfig, 'style', 'text', 'position',[100 8 300 20],...
+                  'ForegroundColor', [0 0 0], 'FontSize', 12);
+titlestr = {'Ref 405', 'Signal 470', 'Signal 565'};
+hims = matlab.graphics.primitive.Image.empty(3,0);
+for i=1:3
+    axes(haxs(i));
+    hims(i) = imshow(uint16(zeros(512)));
+    title(titlestr{i});
+end
+axis(haxs, 'off')
+axis(haxs, 'equal')
+axis(haxs, 'ij')
+set(hfig, 'visible', 'on')
+image_sub = cell(3,1);
+
+startBackground(handles.s);
+tStart = tic();
+while isvalid(hfig)
+    tic
+    for i=1:3
+        image_sub{i} = getdata(handles.vid, 1, 'uint16');
+    end
+    for i=1:3
+        if isvalid(hims(i)); set(hims(i), 'CData', image_sub{i}); end
+    end
+    et = toc(); tsum = toc(tStart);
+    if isvalid(htFPS);set(htFPS, 'string', sprintf('%5.2f FPS / color', 1/et));end
+    if isvalid(htTIME);set(htTIME, 'string', sprintf('%5.1f sec', tsum));end
 end
 % end cxf
 
@@ -480,45 +517,43 @@ if state
         end
         
         nMasks = size(handles.masks, 3);
-        ref = zeros(1, nMasks); sig = zeros(1, nMasks);
+        ref = zeros(1, nMasks); sig = zeros(1, nMasks); sig2 = zeros(1, nMasks);
         i = 0;
         j = 0;
         rate = str2double(get(handles.rate_txt, 'String'));
         lookback = handles.plotLookback;
-        framesback = lookback * rate / 2;
+        framesback = lookback * rate / 3;
         vid = handles.vid;
         s = handles.s;
 
         % Set up plotting
         plot_fig = figure('CloseRequestFcn', @uncloseable);
-        ha = tightSubplot(nMasks, 1, 0.1, 0.05, 0.10, plot_fig);
+        ha = tightSubplot(nMasks, 1, 0.02, 0.05, 0.10, plot_fig);
         yyaxes = zeros(nMasks, 2);
-        lyy = zeros(nMasks, 2);
-        t = -lookback:(2/rate):0;
-        ymax = 4;
+        lyy = zeros(nMasks, 3);
+        t = -lookback:(3/rate):0;
         ybuf = 1.1;
         for k = 1:nMasks
-            [yyax, l1, l2] = plotyy(ha(k), 0, 0, 0, 0);
+            [yyax, l1, l2] = plotyy(ha(k), [0 0;0 0], [0 0; 0 0], 0, 0);
             xlim(yyax(1), [-lookback 0]);
             xlim(yyax(2), [-lookback 0]);
-            ylim(yyax(1), [0 ymax]);
-            ylim(yyax(2), [0 ymax]);
             linkprop(yyax,{'Xlim'});
-            set(l1, 'Color', handles.calibColors(k,:));
-            set(l2, 'Color', handles.calibColors(k,:));
+            set(l1(1), 'Color', [0.47,0.67,0.19]); %green
+            set(l1(2), 'Color', [0.85,0.33,0.10]); %red
+            set(l2, 'Color', [0,0.45,0.74]);  %blue
             set(l1, 'LineWidth', 2);
-            set(l2, 'LineStyle', '--');
+%             set(l2, 'LineStyle', '--');
             if verLessThan('matlab', '8.4')
                 set(l1, 'LineSmoothing', 'on');
                 set(l2, 'LineSmoothing', 'on');
             end
             set(yyax, {'ycolor'},{'k';'k'});
-            ylabel(yyax(1), 'Signal');
+            ylabel(yyax(1), 'Signals');
             ylabel(yyax(2), 'Reference');
             setappdata(gca, 'LegendColorbarManualSpace' ,1);
             setappdata(gca, 'LegendColorbarReclaimSpace', 1);
             yyaxes(k,:) = yyax;
-            lyy(k,:) = [l1 l2];
+            lyy(k,:) = [l1; l2];
         end
 
  %       triggerconfig(vid, 'hardware', 'RisingEdge', 'EdgeTrigger');
@@ -569,32 +604,42 @@ triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
             end
             
             i = i + 1;      % frame number
-            j = ceil(i/2);  % sig/ref pair number                        
+            j = ceil(i/3);  % sig/ref pair number                        
             
             avgs = applyMasks(handles.masks, img);
             avgs = avgs - darkOffset;
 
             % Exponentially expanding matrix as per std::vector
-            if j > size(ref, 1) || j > size(sig, 1)
-                szr = size(ref); szs = size(sig);
-                ref = [ref; zeros(szr)]; sig = [sig; zeros(szs)];
+            if j > size(ref, 1) || j > size(sig, 1) || j > size(sig2, 1)
+                szr = size(ref); szs = size(sig); szs2 = size(sig2);
+                ref = [ref; zeros(szr)]; sig = [sig; zeros(szs)]; sig2 = [sig2; zeros(szs2)];
             end
 
-            if mod(i, 2) == 1   % reference channel
+            if mod(i, 3) == 1   % reference channel
                 ref(j,:) = avgs;
                 handles.callback(avgs, 'reference');
-            else                % signal channel
+            elseif mod(i, 3) == 2   % signal channel
                 sig(j,:) = avgs;
                 handles.callback(avgs, 'signal');
+            else                % signal 2 channel
+                sig2(j,:) = avgs;
+                handles.callback(avgs, 'signal2');
             end
             % Plotting
-            jboth = 2 * floor(j / 2);
-            if jboth > 0 && mod(i, 2) == 0
+            jboth = 3 * floor(j / 3);
+            if jboth > 0 && mod(i, 3) == 0
                 tlen = jboth - max(1, j-framesback);
+                fprintf('tlen = %f, jboth = %f\n', tlen, jboth);
                 tnow = t(end-tlen:end);
                 for k = 1:nMasks
                     sigmin = min(sig(max(1, j-framesback):jboth,k));
                     sigmax = max(sig(max(1, j-framesback):jboth,k));
+                    
+                    sig2min = min(sig2(max(1, j-framesback):jboth,k));
+                    sig2max = max(sig2(max(1, j-framesback):jboth,k));
+                    
+                    sigmin = min([sigmin, sig2min]);
+                    sigmax = max([sigmax, sig2max]);
                     
                     refmin = min(ref(max(1, j-framesback):jboth,k));
                     refmax = max(ref(max(1, j-framesback):jboth,k));
@@ -615,16 +660,18 @@ triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
                     % if max = min, don't try to update bounds
                     if sigmax > sigmin
                         ylim(yyaxes(k,1), [sigmin sigmax]);
+                        set(yyaxes(k,1), 'ytick', linspace(sigmin,sigmax,5));
                     end
                     if refmax > refmin
                         ylim(yyaxes(k,2), [refmin refmax]);
+                        set(yyaxes(k,2), 'ytick', linspace(refmin,refmax,5));
                     end
 
                     set(lyy(k,1), 'XData', tnow, 'YData', sig(max(1, j-framesback):jboth,k));
-                    set(lyy(k,2), 'XData', tnow, 'YData', ref(max(1, j-framesback):jboth,k));
+                    set(lyy(k,2), 'XData', tnow, 'YData', sig2(max(1, j-framesback):jboth,k));
+                    set(lyy(k,3), 'XData', tnow, 'YData', ref(max(1, j-framesback):jboth,k));
                 end
             end
-            toc;
             % Check to make sure camera acquisition is keeping up.
             elapsed_time = (now() - handles.startTime());
             rate = str2double(get(handles.rate_txt,'String'));            
@@ -655,7 +702,7 @@ triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
 
         % Save data
         if j > 0
-            save_data(sig(1:j,:), ref(1:j,:), handles.labels, rate, handles.calibImg.cdata, saveFile, calibFile);
+            save_data(sig(1:j,:), sig2(1:j,:), ref(1:j,:), handles.labels, rate, handles.calibImg.cdata, saveFile, calibFile);
         else            
             warning(['No frames captured or saved! Check camera trigger connection is ' handles.camCh.Terminal '. Then restart MATLAB.']); beep;
         end
@@ -674,8 +721,8 @@ triggerconfig(vid, 'hardware', 'DeviceSpecific', 'DeviceSpecific');
     set(hObject, 'String', 'Acquire data');
 end
 
-function  save_data(sig, ref, labels, framerate, cdata, saveFile, calibFile)
-save(saveFile, 'sig', 'ref', 'labels', 'framerate', '-v7.3');
+function  save_data(sig, sig2, ref, labels, framerate, cdata, saveFile, calibFile)
+save(saveFile, 'sig', 'sig2', 'ref', 'labels', 'framerate', '-v7.3');
 if any(cdata(:))
     imwrite(cdata, calibFile, 'JPEG');
 end
@@ -762,7 +809,39 @@ if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgr
     set(hObject,'BackgroundColor','white');
 end
 
+function sig2_pop_Callback(hObject, eventdata, handles)
+% hObject    handle to sig2_pop (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
 
+% Hints: contents = cellstr(get(hObject,'String')) returns sig2_pop contents as cell array
+%        contents{get(hObject,'Value')} returns selected item from sig2_pop
+f = handles.sig2Ch.Frequency;
+i = handles.sig2Ch.InitialDelay;
+d = handles.sig2Ch.DutyCycle;
+handles.s.removeChannel(chIdx(handles.s, handles.sig2Ch));
+
+handles.sig2Ch = handles.s.addCounterOutputChannel(handles.dev.ID, getCurrentPopupString(hObject), 'PulseGeneration');
+handles.sig2Ch.Frequency = f;
+handles.sig2Ch.InitialDelay = i;
+handles.sig2Ch.DutyCycle = d;
+disp(['Signal 656 LED should be connected to ' handles.sig2Ch.Terminal]);
+
+% Update handles structure
+guidata(hObject, handles);
+
+
+% --- Executes during object creation, after setting all properties.
+function sig2_pop_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to sig2_pop (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: popupmenu controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
 
 function rate_txt_Callback(hObject, eventdata, handles)
 % hObject    handle to rate_txt (see GCBO)
@@ -775,10 +854,12 @@ rate = str2double(get(handles.rate_txt,'String'));
 fs = rate * handles.sample_rate_factor;
 set(handles.s, 'Rate', fs);
 set(handles.camCh, 'Frequency', rate);
-set(handles.refCh, 'Frequency', rate / 2);
-set(handles.refCh, 'InitialDelay', 1 / rate * 0.05);
-set(handles.sigCh, 'Frequency', rate / 2);
-set(handles.sigCh, 'InitialDelay', 1 / rate * 1.05);
+set(handles.refCh, 'Frequency', rate / 3);
+set(handles.refCh, 'InitialDelay', 0 / rate + 0.005);
+set(handles.sigCh, 'Frequency', rate / 3);
+set(handles.sigCh, 'InitialDelay', 1 / rate + 0.005);
+set(handles.sig2Ch, 'Frequency', rate / 3);
+set(handles.sig2Ch, 'InitialDelay', 2 / rate + 0.005);
 
 % Update handles structure
 guidata(hObject, handles);
@@ -823,6 +904,7 @@ guidata(hObject, handles);
 function update_camera_exposure_time(handles)
    rate = str2double(get(handles.rate_txt, 'String'));
    handles.src.ExposureTime = 1 / rate - handles.exposureGap;
+   
 function cam_pop_Callback(hObject, eventdata, handles)
 % hObject    handle to cam_pop (see GCBO)
 % eventdata  reserved - to be defined in a future version of MATLAB
@@ -1079,3 +1161,7 @@ function ai_logging_check_Callback(hObject, eventdata, handles)
 % Hint: get(hObject,'Value') returns toggle state of ai_logging_check
 function is_enabled = ai_logging_is_enabled(handles)
     is_enabled = get(handles.ai_logging_check,'Value');
+
+
+% --- Executes on selection change in sig2_pop.
+
