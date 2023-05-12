@@ -46,7 +46,8 @@ classdef Session < matlab.mixin.CustomDisplay & matlab.mixin.SetGet & handle
             if ispc()
                 s.port = upper(s.port);
             end
-            assert(ismember(s.port, serialportlist));
+            hwinfo = instrhwinfo('serial');
+            assert(ismember(s.port, hwinfo.SerialPorts));
             connectedSer = instrfindall('type', 'serial', 'Name', ['Serial-', s.port], 'Status', 'open');
             if ~isempty(connectedSer)
                 warning('backtrace', 'off');warning('Serial port [%s]has been opened, now force to reconnect.', s.port);
