@@ -52,7 +52,7 @@ classdef Session < matlab.mixin.CustomDisplay & matlab.mixin.SetGet & handle
                 warning('backtrace', 'off');warning('Serial port [%s]has been opened, now force to reconnect.', s.port);
                 delete(connectedSer);
             end
-            s.SerialObj = serial(s.port,'BaudRate',250000, 'Terminator', 'LF', ...
+            s.SerialObj = serial(s.port,'BaudRate',19200, 'Terminator', 'LF', ...
                                 'InputBufferSize', 2048, 'OutputBufferSize', 2048);
             fopen(s.SerialObj);
             pause(2);
