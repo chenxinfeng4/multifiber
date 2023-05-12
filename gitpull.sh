@@ -2,7 +2,6 @@
 url_NET="https://github.com/chenxinfeng4/multifiber.git"
 cd "$(dirname "$0")"
 upstream="$url_NET"
-cd $workdir
 if [ -d ./.git/refs/remotes/upstream ]; then
 	rmt=set-url
 else
